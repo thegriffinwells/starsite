@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Star Spawner</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    background: #fff;
+  }
+  canvas {
+    display: block;
+    width: 100%; height: 100%;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+  #tap-hint {
+    position: fixed;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: monospace;
+    font-size: 14px;
+    color: #bbb;
+    letter-spacing: 2px;
+    animation: pulse 2s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 10;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="tap-hint">TAP ANYWHERE</div>
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const hint = document.getElementById('tap-hint');
+
+  // Low-res internal resolution for that 32-bit low-poly look
+  const PIXEL_SCALE = 4;
+  let W, H;
+
+  function resize() {
+    W = Math.floor(window.innerWidth / PIXEL_SCALE);
+    H = Math.floor(window.innerHeight / PIXEL_SCALE);
+    canvas.width = W;
+    canvas.height = H;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // Prevent all scrolling
+  document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+  document.addEventListener('wheel', e => e.preventDefault(), { passive: false });
+
+  // Star colors — vivid retro palette
+  const COLORS = [
+    '#FF004D', // red
+    '#FF6C24', // orange
+    '#FFEC27', // yellow
+    '#00E436', // green
+    '#29ADFF', // blue
+    '#7E2553', // plum
+    '#FF77A8', // pink
+    '#FFA300', // amber
+    '#00B543', // emerald
+    '#83769C', // lavender
+    '#FF004D',
+    '#29ADFF',
+    '#FFEC27',
+  ];
+
+  const stars = [];
+  const particles = [];
+  let tapped = false;
+
+  class Star {
+    constructor(x, y, gen) {
+      // Convert screen coords to canvas coords
+      this.x = x / PIXEL_SCALE;
+      this.y = y / PIXEL_SCALE;
+      this.gen = gen || 0;
+      this.color = COLORS[Math.floor(Math.random() * COLORS.length)];
+      this.size = Math.max(2, 6 - this.gen);
+      this.rotation = Math.random() * Math.PI * 2;
+      this.rotSpeed = (Math.random() - 0.5) * 0.08;
+      this.vx = (Math.random() - 0.5) * 3;
+      this.vy = (Math.random() - 0.5) * 3 - 1.5;
+      this.gravity = 0.04;
+      this.life = 1.0;
+      this.decay = 0.006 + Math.random() * 0.006;
+      this.multiplied = false;
+      this.multiplyAt = 0.5 + Math.random() * 0.3; // multiply when life drops to this
+      this.maxGen = 3;
+      this.sparkTimer = 0;
+    }
+
+    update() {
+      this.vy += this.gravity;
+      this.x += this.vx;
+      this.y += this.vy;
+      this.rotation += this.rotSpeed;
+      this.life -= this.decay;
+      this.sparkTimer++;
+
+      // Spawn tiny spark particles
+      if (this.sparkTimer % 3 === 0 && this.life > 0.2) {
+        particles.push(new Particle(this.x, this.y, this.color));
+      }
+
+      // Multiply!
+      if (!this.multiplied && this.life <= this.multiplyAt && this.gen < this.maxGen) {
+        this.multiplied = true;
+        const count = 2 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < count; i++) {
+          const child = new Star(this.x * PIXEL_SCALE, this.y * PIXEL_SCALE, this.gen + 1);
+          child.vx = this.vx + (Math.random() - 0.5) * 4;
+          child.vy = this.vy + (Math.random() - 0.5) * 4 - 1;
+          stars.push(child);
+        }
+        // Burst particles on multiply
+        for (let i = 0; i < 6; i++) {
+          particles.push(new Particle(this.x, this.y, this.color, true));
+        }
+      }
+
+      return this.life > 0;
+    }
+
+    draw() {
+      const alpha = Math.min(1, this.life * 2);
+      ctx.save();
+      ctx.translate(Math.floor(this.x), Math.floor(this.y));
+      ctx.rotate(this.rotation);
+      ctx.globalAlpha = alpha;
+      drawLowPolyStar(ctx, 0, 0, this.size, this.color);
+      ctx.restore();
+    }
+  }
+
+  class Particle {
+    constructor(x, y, color, burst) {
+      this.x = x;
+      this.y = y;
+      this.color = color;
+      const speed = burst ? 2 : 0.5;
+      this.vx = (Math.random() - 0.5) * speed;
+      this.vy = (Math.random() - 0.5) * speed;
+      this.life = 1.0;
+      this.decay = 0.03 + Math.random() * 0.04;
+      this.size = burst ? 2 : 1;
+    }
+
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vy += 0.02;
+      this.life -= this.decay;
+      return this.life > 0;
+    }
+
+    draw() {
+      ctx.globalAlpha = Math.min(1, this.life * 2);
+      ctx.fillStyle = this.color;
+      ctx.fillRect(Math.floor(this.x), Math.floor(this.y), this.size, this.size);
+    }
+  }
+
+  // Draw a chunky low-poly 4-pointed star
+  function drawLowPolyStar(ctx, cx, cy, r, color) {
+    const points = 4;
+    const inner = r * 0.4;
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const radius = i % 2 === 0 ? r : inner;
+      const angle = (i * Math.PI) / points - Math.PI / 2;
+      const px = Math.floor(cx + Math.cos(angle) * radius);
+      const py = Math.floor(cy + Math.sin(angle) * radius);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    // Highlight facet for that low-poly look
+    ctx.beginPath();
+    const a0 = -Math.PI / 2;
+    const a1 = 0;
+    const a2 = Math.PI / 2;
+    ctx.moveTo(Math.floor(cx + Math.cos(a0) * r), Math.floor(cy + Math.sin(a0) * r));
+    ctx.lineTo(Math.floor(cx + Math.cos((a0 + a1) / 2) * inner), Math.floor(cy + Math.sin((a0 + a1) / 2) * inner));
+    ctx.lineTo(Math.floor(cx), Math.floor(cy));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fill();
+  }
+
+  function spawnBurst(screenX, screenY) {
+    const count = 5 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < count; i++) {
+      stars.push(new Star(screenX, screenY, 0));
+    }
+    // Initial burst particles
+    for (let i = 0; i < 12; i++) {
+      particles.push(new Particle(screenX / PIXEL_SCALE, screenY / PIXEL_SCALE, COLORS[Math.floor(Math.random() * COLORS.length)], true));
+    }
+  }
+
+  // Input handlers
+  function handleInput(x, y) {
+    if (!tapped) {
+      tapped = true;
+      hint.style.display = 'none';
+    }
+    spawnBurst(x, y);
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    handleInput(e.clientX, e.clientY);
+  });
+
+  canvas.addEventListener('pointermove', e => {
+    if (e.pressure > 0) {
+      e.preventDefault();
+      // Spawn less on drag so it doesn't overwhelm
+      if (Math.random() < 0.3) {
+        spawnBurst(e.clientX, e.clientY);
+      }
+    }
+  });
+
+  // Main loop
+  function frame() {
+    // Clear to white
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+
+    // Update and draw particles
+    for (let i = particles.length - 1; i >= 0; i--) {
+      if (!particles[i].update()) {
+        particles.splice(i, 1);
+      }
+    }
+    for (const p of particles) {
+      p.draw();
+    }
+
+    // Update and draw stars
+    for (let i = stars.length - 1; i >= 0; i--) {
+      if (!stars[i].update()) {
+        stars.splice(i, 1);
+      }
+    }
+    for (const s of stars) {
+      s.draw();
+    }
+
+    // Cap arrays to avoid perf issues on mobile
+    if (stars.length > 500) stars.splice(0, stars.length - 500);
+    if (particles.length > 2000) particles.splice(0, particles.length - 2000);
+
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(frame);
+  }
+
+  frame();
+})();
+</script>
+</body>
+</html>
